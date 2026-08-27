@@ -10,9 +10,10 @@ One engine, three frontends:
 
     chessformer_lens                                   # the native app
 
-`interp_plot` needs matplotlib and the app needs pywebview; both are extras
-(`pip install 'chessformer_lens[plot,app]'`). Importing this package pulls in
-neither — the names below resolve on first use.
+`interp_plot` needs matplotlib and the app needs pywebview; both are ordinary
+dependencies, so a plain `pip install chessformer_lens` covers every frontend.
+Importing this package still pulls in neither — the names below resolve on
+first use.
 """
 
 from importlib import import_module
@@ -23,7 +24,7 @@ try:  # populated once the distribution is installed
 
     __version__ = version("chessformer-lens")
 except Exception:  # running from a source checkout without an install
-    __version__ = "0.2.0"
+    __version__ = "0.3.0"
 
 # Attribute -> the submodule it lives in. Resolved lazily so that `import
 # chessformer_lens` (and `__version__`) costs nothing: engine.py pulls in torch

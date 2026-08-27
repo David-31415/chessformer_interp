@@ -24,6 +24,8 @@ The app's views as matplotlib figures — same layouts, same colours, same words
                         GAB, and the head's final attention, for one query square
   plot_attention_layer  the same three, for every head in a layer at once —
                         3·num_heads boards on one comparable scale
+  plot_attention_atlas  one head's whole 64x64 matrix as 64 small boards, each
+                        drawn at its own query square
   plot_gab_mixture      "How L·h's GAB is generated": the decomposition readout,
                         the generated mixing coefficients, and the template bank
   plot_gab_templates    the template vocabulary on its own
@@ -985,6 +987,62 @@ def _legbar(fig, x, y, w, cmap, left, right, h=.018):
             fontsize=7, color=MUTED, family=MONO)
     ax.text(1.04, .5, right, transform=ax.transAxes, ha="left", va="center",
             fontsize=7, color=MUTED, family=MONO)
+
+
+# ---------------------------------------------------------------------------
+# every query square at once
+# ---------------------------------------------------------------------------
+def plot_attention_atlas(eng, board: chess.Board, elo: int = 1500, *, oppo_elo=None,
+                         layer: int = 0, head: int = 0, component: str = "attn",
+                         shared_scale: bool = True, figsize=None):
+    """"Attention atlas": one head's whole 64x64 matrix, drawn as 64 small boards
+    — `plot_attention` widened from one query square to all of them, with each
+    board placed where its own query square sits on the real board.
+
+    Kwargs:
+      component     'attn' (default), 'attn_content', 'qk' or 'gab' — the same
+                    matrices `plot_attention` puts side by side. The pre-softmax
+                    two are drawn diverging, the post-softmax two 0 -> max.
+      shared_scale  one scale for all 64 panels, so a bright panel really is a
+                    sharper query row. False scales each panel to itself, which
+                    shows every row's shape at the cost of comparability.
+      layer, head   which head to open up.
+      oppo_elo      the opponent's rating; defaults to `elo` for both sides."""
+    att = eng.attention(board, elo, oppo_elo, layer=layer, head=head)
+    M = np.array(att[component])                          # (64, 64), row = query
+    div = component in ("qk", "gab")
+    cmap = _divmap if div else plt.get_cmap("viridis")
+    mag = np.abs(M) if div else M
+    gmax = float(mag.max()) or 1.
+
+    fig = _fig(figsize or (11.2, 9.6))
+    gs = GridSpec(8, 8, figure=fig, hspace=.05, wspace=.05,
+                  left=.035, right=.735, top=.855, bottom=.035)
+    for sq in chess.SQUARES:
+        q = _canon(sq, board.turn)
+        ax = fig.add_subplot(gs[7 - chess.square_rank(sq), chess.square_file(sq)])
+        mx = gmax if shared_scale else (float(mag[q].max()) or 1.)
+        draw_board(ax, board, heat=M[q] / mx, cmap=cmap, pieces=False,
+                   coords=False, query=q)
+
+    # the position itself, once, at the size the atlas cannot afford
+    key = fig.add_axes([.775, .445, .205, .205 * fig.get_figwidth() / fig.get_figheight()])
+    draw_board(key, board, pieces=True, coords=True)
+    _hint(key, "the position — every panel is this board", x=0, y=-.10)
+
+    peak = np.unravel_index(int(mag.argmax()), mag.shape)
+    fig.text(.035, _inch_y(fig, .26), "Attention atlas · every query square",
+             fontsize=11.5, color=TEXT, fontweight="600", va="top")
+    fig.text(.035, _inch_y(fig, .52),
+             f"L{layer}·h{head} · {component} · elo {elo} · 64 boards, each the "
+             f"attention row of the square it sits on (ringed) · "
+             f"{'one scale for all' if shared_scale else 'per-panel scale'} · "
+             f"peak {_canon_name(int(peak[0]), board.turn)}→"
+             f"{_canon_name(int(peak[1]), board.turn)}",
+             fontsize=8.5, color=MUTED, family=MONO, va="top")
+    _legbar(fig, .80, .35, .155, DIVMAP if div else plt.get_cmap("viridis"),
+            "−max" if div else "0", "max")
+    return fig
 
 
 # ---------------------------------------------------------------------------

@@ -53,6 +53,11 @@ INDEX_HTML = r"""<!DOCTYPE html>
   .sq.light{background:var(--sq-light)} .sq.dark{background:var(--sq-dark)}
   .sq.lastmove::after{content:"";position:absolute;inset:0;background:var(--hl)}
   .sq.sel{box-shadow:inset 0 0 0 4px var(--sel)}
+  /* random-walk replay: each landing square pops as the move goes down */
+  @keyframes walkpop{
+    0%{box-shadow:inset 0 0 0 4px var(--accent);}
+    100%{box-shadow:inset 0 0 0 0 rgba(110,168,254,0);}}
+  .sq.walkstep{animation:walkpop .30s ease-out}
   .sq img.pc{position:relative;z-index:2;width:87%;height:87%;
     filter:drop-shadow(0 2px 2px rgba(0,0,0,.30));pointer-events:none}
   .sq .dot{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
@@ -374,7 +379,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
       <div class="controls" style="margin-top:10px">
         <button class="primary" id="newbtn">New game</button>
         <button id="undobtn">← Back</button>
-        <select id="color"><option value="white">You play White</option><option value="black">You play Black</option><option value="setup">Set up position</option></select>
+        <select id="color"><option value="white">You play White</option><option value="black">You play Black</option><option value="setup">Set up position</option><option value="random">Random position</option></select>
         <span class="status" id="status"></span>
       </div>
     </div>
@@ -471,7 +476,7 @@ function pieceImg(sym){ const i=document.createElement('img');
 let API=null, cur=null, orient='white', sel=null, busy=false;
 let elo=1500, temp=1, pendingPromo=null, MODEL_INFO=null, setupMode=false;
 let cmpOn=false, cmpElo=1100;
-const MAXPOL=40;   // policy list is scrollable — show essentially every legal move
+const START_FEN='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -532,14 +537,62 @@ function setModelInfo(){
 /* ---- controls ---- */
 $('newbtn').onclick = ()=>{ if(!busy) newGame(); };
 $('undobtn').onclick = ()=>{ if(!busy) doUndo(); };
+function syncModeSelect(){
+  $('color').value = setupMode ? 'setup'
+    : (cur && cur.human_color==='black' ? 'black' : 'white');
+}
 $('color').addEventListener('change', ()=>{
-  if(busy) return;
+  if(busy){ syncModeSelect(); return; }
   const v = $('color').value;
-  if(v==='setup') enterSetup();
+  if(v==='random') doRandom();        // an action, not a mode — it lands on 'setup'
+  else if(v==='setup') enterSetup();
   else if(setupMode) resumeFrom(v);   // leaving set-up: play on from THIS position
   else newGame();                     // white<->black mid-game: start over
 });
 $('fenload').onclick = ()=>{ if(!busy) doSetFen($('fenin').value.trim()); };
+/* A random position is a short Maia self-play walk (bridge.random_position),
+   and the walk comes back as frames so we can replay it: the board rockets
+   through the game, then eases into the position you are handed. */
+const WALK_MS=2000;     // budget for the fast part, whatever the walk's length
+async function doRandom(){
+  if(!API || busy) return;
+  sel=null; busy=true; setupMode=true;
+  syncModeSelect();          // the walk leaves you in set-up mode; show that now
+  setStatus('rolling a position…');
+  let r;
+  try{ r = await API.random_position(elo); }
+  catch(e){ busy=false; setStatus('⚠ random position failed — see console');
+            console.warn('[maia] random_position failed', e); return; }
+  if(!r || r.error){ busy=false; setStatus('⚠ '+((r&&r.error)||'random position failed')); return; }
+  await playWalk(r);
+  cur=r; sel=null; renderBoard(); renderMoves();
+  busy=false;
+  await advance();
+}
+async function playWalk(final){
+  const fr = final.walk || [];
+  if(!fr.length) return;
+  const step = Math.min(90, Math.max(26, Math.round(WALK_MS/fr.length)));
+  // start from the initial position so the whole game plays out in front of you
+  cur = {...final, fen:START_FEN, last_move:null, in_check:false,
+         san_history:[], legal_moves:[], game_over:false};
+  renderBoard(); renderMoves();
+  await sleep(step);
+  for(let i=0;i<fr.length;i++){
+    const f=fr[i], left=fr.length-1-i;
+    cur = {...final, fen:f.fen, last_move:f.last_move, in_check:f.in_check,
+           san_history:fr.slice(0,i+1).map(x=>x.san), legal_moves:[], game_over:false};
+    renderBoard(); renderMoves(); flashSquare(f.last_move.slice(2,4));
+    setStatus(`self-play walk · ${Math.floor(i/2)+1}${i%2?'…':'.'} ${f.san}`);
+    // decelerate over the last few plies so the final position registers
+    await sleep(left<4 ? step + (4-left)*70 : step);
+  }
+}
+function flashSquare(name){
+  const el=$('board').querySelector(`[data-sq="${name}"]`);
+  if(!el) return;
+  el.classList.remove('walkstep'); void el.offsetWidth; el.classList.add('walkstep');
+}
 async function enterSetup(){
   if(!API || busy) return;
   setupMode=true;
@@ -670,6 +723,7 @@ function renderBoard(){
     const isLight=(fileIdx+rankNum)%2===0;
     const d=document.createElement('div');
     d.className='sq '+(isLight?'light':'dark');
+    d.dataset.sq=name;
     if(last.includes(name)) d.classList.add('lastmove');
     if(sel===name) d.classList.add('sel');
     if(name===hlSq) d.classList.add('attq');
@@ -790,7 +844,12 @@ function renderPolicy(pol, wdl, actfile, playedUci){
     ? `Policy · clean (blue) vs L${ablData.layer}·h${ablData.head} ablated (red)`
     : (pol ? `Policy over ${pol.length} legal moves` : 'Policy over legal moves');
   if(pol && pol.length){
-    pol.slice(0,MAXPOL).forEach((m,i)=>{
+    // ablating re-sorts the list by signed Δ — the moves the head was holding up
+    // sink to the bottom, the ones it was suppressing rise to the top
+    const list = abl
+      ? pol.slice().sort((a,b)=>((abl[b.uci]||0)-b.p)-((abl[a.uci]||0)-a.p))
+      : pol;
+    list.forEach((m,i)=>{
       const row=document.createElement('div');
       row.className='prow'+(abl?' cmp':(i===0?' top':''))+(playedUci&&m.uci===playedUci?' played':'');
       row.dataset.uci=m.uci;
@@ -811,9 +870,8 @@ function renderPolicy(pol, wdl, actfile, playedUci){
       }
       box.appendChild(row);
     });
-    if(pol.length>MAXPOL){ box.insertAdjacentHTML("beforeend",
-      `<div style="font-size:10px;color:var(--muted);margin-top:5px">+${pol.length-MAXPOL} more legal moves`+
-      (abl?` · Δ = p(ablated) − p(clean)`:'')+`</div>`); }
+    if(abl){ box.insertAdjacentHTML("beforeend",
+      `<div style="font-size:10px;color:var(--muted);margin-top:5px">sorted by Δ = p(ablated) − p(clean)</div>`); }
   }
   if(wdl){
     if(abl){
@@ -1269,7 +1327,7 @@ function renderCompare(d){
   $('poltitle').textContent=`Policy · ${d.elo_a} (blue) vs ${d.elo_b} (green)`+
     (abl?` · L${ablData.layer}·h${ablData.head} ablated (red)`:'');
   const rows=d.rows||[];
-  rows.slice(0,MAXPOL).forEach(r=>{
+  rows.forEach(r=>{
     const dlt=(r.p_b-r.p_a)*100, cls=dlt>=0?'up':'down';
     const row=document.createElement('div');
     row.className='prow cmp';
@@ -1286,8 +1344,8 @@ function renderCompare(d){
       `<span class="pct delta ${cls}">${dlt>=0?'+':''}${dlt.toFixed(1)}</span>`;
     box.appendChild(row);
   });
-  if(rows.length>MAXPOL){ box.insertAdjacentHTML("beforeend",
-    `<div style="font-size:10px;color:var(--muted);margin-top:5px">+${rows.length-MAXPOL} more legal moves · Δ = p(${d.elo_b}) − p(${d.elo_a})</div>`); }
+  box.insertAdjacentHTML("beforeend",
+    `<div style="font-size:10px;color:var(--muted);margin-top:5px">Δ = p(${d.elo_b}) − p(${d.elo_a})</div>`);
   const wdl=$('wdl'); wdl.classList.add('cmp');
   wdl.innerHTML = wdlRowHtml(d.elo_a, d.wdl_a) + wdlRowHtml(d.elo_b, d.wdl_b)
     + (abl?wdlRowHtml('abl', ablData.wdl_abl):'');

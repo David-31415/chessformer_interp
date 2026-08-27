@@ -10,6 +10,7 @@ interp_plot.py / interp_widget.py, or import `MaiaEngine` from engine.py
 directly; none of them go through here.
 """
 import os
+import random
 import sys
 import threading
 from pathlib import Path
@@ -28,6 +29,11 @@ ACT_DIR = Path.cwd() / "activations"
 #     CHESSFORMER_SAVE_ACTIVATIONS=1 chessformer_lens
 SAVE_ACTIVATIONS = os.environ.get(
     "CHESSFORMER_SAVE_ACTIVATIONS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+# `random_position` walks back out of a position offering fewer choices than
+# this: a board where the side to move has one forced reply makes for a dead
+# policy panel, which is the one panel the button exists to fill.
+RANDOM_MIN_LEGAL = 6
 
 
 def side_name(turn):
@@ -246,6 +252,57 @@ class MaiaApi:
         self.human_both = True
         self.san_history = []
         return self._base()
+
+    def random_position(self, elo=1500, min_plies=12, max_plies=60):
+        """Land on a random position by playing Maia against itself, then enter
+        set-up / analyze mode there.
+
+        The walk samples from the model's own policy at `elo`, so you get a
+        board that rating actually reaches — a uniformly-random legal walk
+        wanders off the training distribution within a dozen plies, and the
+        policy over such a position reads as noise. Being a real walk and not a
+        FEN jump, the move list and ← Back work from here too.
+
+        Returns the usual state dict plus `walk`: one frame per ply, which the
+        UI replays on the board so you watch the game arrive.
+        """
+        board, sans, frames = self._self_play(
+            int(elo), random.randint(int(min_plies), int(max_plies)))
+        # a walk can end in mate, or on a board with one forced reply. Step back
+        # to the last position that poses a real choice — re-rolling the whole
+        # walk would cost another N forward passes for the same result.
+        while board.move_stack and (board.is_game_over()
+                                    or board.legal_moves.count() < RANDOM_MIN_LEGAL):
+            board.pop()
+            sans.pop()
+            frames.pop()
+        self.board = board
+        self.san_history = sans
+        self.human_both = True
+        return {**self._base(), "walk": frames}
+
+    def _self_play(self, elo, plies):
+        """One self-play walk from the start position, `plies` long (shorter if
+        the game ends first). Falls back to random legal moves if the model is
+        not loaded — the app gates its UI on `ready`, so that path is only
+        reachable when this is driven straight from the console."""
+        board, sans, frames = chess.Board(), [], []
+        for _ in range(plies):
+            if board.is_game_over():
+                break
+            mv = None
+            if self.ready:
+                with self._lock:
+                    mv, _ = self.engine.select_move(
+                        board, self_elo=elo, temperature=1.0)
+            if mv is None or mv not in board.legal_moves:
+                mv = random.choice(list(board.legal_moves))
+            san = board.san(mv)
+            board.push(mv)
+            sans.append(san)
+            frames.append({"fen": board.fen(), "last_move": mv.uci(),
+                           "san": san, "in_check": board.is_check()})
+        return board, sans, frames
 
     def edit_square(self, frm, to=None):
         """Free position editing: move the piece on `frm` to `to` ignoring

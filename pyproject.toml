@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chessformer_lens"
-version = "0.2.2"
+version = "0.3.0"
 description = "An interpretability lens and visualizer for square-token chess transformers (MAIA-3 backend; Lc0-BT next)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -47,12 +47,21 @@ dependencies = [
     "python-chess",
     "huggingface-hub",
     "ipython",
+    # Both frontends ship in the base install, so `pip install chessformer_lens`
+    # is enough to launch the app and to draw the static figures. They were
+    # extras through 0.2.2; a console script cannot pull an extra at run time,
+    # which left the `chessformer_lens` command dead on a plain install.
+    "pywebview",    # the native window (app.py)
+    "matplotlib",   # the static figure layer (interp_plot.py, piece_art.py)
 ]
 
+# Kept as empty no-op aliases: every `pip install "chessformer_lens[all]"` line
+# written for 0.2.x -- including the ones in the DOI'd README -- must keep
+# resolving, and pip errors on an extra a distribution does not declare.
 [project.optional-dependencies]
-app = ["pywebview"]          # the native window (app.py)
-plot = ["matplotlib"]        # the static figure layer (interp_plot.py, piece_art.py)
-all = ["chessformer_lens[app,plot]"]
+app = []
+plot = []
+all = []
 
 [project.scripts]
 chessformer_lens = "chessformer_lens.app:main"

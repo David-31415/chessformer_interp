@@ -39,7 +39,7 @@ def main():
     try:
         import webview  # pywebview
     except ImportError:
-        sys.exit("pywebview is not installed.  Run:  pip install 'chessformer_lens[app]'")
+        sys.exit("pywebview is not installed.  Run:  pip install --upgrade chessformer_lens")
     api = MaiaApi(alias=alias)
     webview.create_window(
         "Chessformer (Maia 3) Interpretability App",

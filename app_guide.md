@@ -3,8 +3,10 @@
 **Play or Set up a Position**
 ![Playing a game: the board, the last-move arrow, and the move list](../Screenshots/Screenshot7.png)
 Click to move your pieces. Select an Elo for the engine (Maia-3 is created to mimic how HUMANS play at that strength, with all of our innate biases)
-and use `New game`, and a dropdown:`You play White` / `You play Black` / `Set up position`.
+and use `New game`, and a dropdown:`You play White` / `You play Black` / `Set up position` / `Random position`.
 It is also possible to `paste a FEN to load` a position with the `Load` button. 
+
+`Random position` generates a position through a random walk of the engine's policies. It is ideal for testing mechanistic hypothesis on realistic positions. 
 
 In setup mode both sides are yours; clicks move pieces ignoring legality, and clicking the same square twice deletes the piece. 
 Select a color to continue as it from that position.
@@ -16,7 +18,7 @@ moves are recorded in SAN notation.
 
 At the top in the center there is a `Win / Draw / Loss · side to move` stacked bar. 
 Under it is the `Maia rating (self_elo)` slider: 600-2800, step 25, default 1500; Dragging reevaluates the same position. 
-Under that is the scrollable ranked list: `Policy over N legal moves`. 
+Under that is the scrollable ranked list: `Policy over N legal moves` — every legal move gets a row. 
 
 There is a `compare with a second rating` checkbox which reveals a `second rating` slider
 (default 1100). Setting it makes the policy rows become paired blue/green bars showing the compared policy and evaluation. This second rating does not affect the attention or GAB or residual panel app features.
@@ -27,7 +29,8 @@ Select a square on the right to set the query for the three boards, labeled:
 -`semantic attention (QKᵀ)`
 -`geometric attention (GAB)`
 -`final head attention matrix (scaled softmax(QKᵀ + GAB))`
-`Ablate this head` gives the top 8 moves by |Δp|.
+`Ablate this head` redraws the policy list with the ablated pass in red over the clean pass in blue, re-sorted by
+signed `Δ = p(ablated) − p(clean)` — the moves the head was suppressing rise to the top, the ones it was holding up sink.
 ![Live attention: the QKᵀ, GAB and final attention boards for one query square](../Screenshots/Screenshot2.png)
 Unique to the app and Maia-3, hover over any attention square and the GAB drawer decomposes that square pair live, with every head clickable to open that template:
  ![The GAB drawer decomposing one square pair, head by head](../Screenshots/Screenshot8.png)

@@ -2,7 +2,7 @@
 
 #### A toolkit + visualizer library  for mechanistic interpretability of transformer based chess models.
 
-`pip install chessformer_lens`, then `import chessformer_lens` or launch `chessformer_lens`.
+Download a chessformer engine then `pip install chessformer_lens`
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21877655.svg)](https://doi.org/10.5281/zenodo.21877655)
 
@@ -16,8 +16,8 @@
 Pip install:
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install git+https://github.com/CSSLab/maia3
-pip install "chessformer_lens[all]"
+pip install git+https://github.com/CSSLab/maia3 --quiet
+pip install chessformer_lens
 ```
 
 Clone install:
@@ -86,8 +86,8 @@ Users are encouraged to read the user guides for each of these modules which can
 
 Recall that FEN is the modern notation for a chess position
 ```python
-!pip install -q git+https://github.com/CSSLab/maia3
-!pip install -q "chessformer_lens[plot]"
+!pip install -q git+https://github.com/CSSLab/maia3 --quiet
+!pip install -q chessformer_lens
 
 import chess
 from chessformer_lens import MaiaEngine
